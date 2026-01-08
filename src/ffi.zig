@@ -1,68 +1,59 @@
 const std = @import("std");
-const db = @import("db.zig");
-const Db = db.Db;
-const Cursor = db.Cursor;
+const lsm = @import("lsm.zig");
+const Lsm = lsm.Lsm;
+const LsmStorageOptions = lsm.LsmStorageOptions;
 
 var debug_allocator = std.heap.DebugAllocator(.{}){};
 const gpa = debug_allocator.allocator();
 
-var colderstorage: Db = undefined;
-var cursor: Cursor = undefined; // only 1 cursor at a time, not thread safe
+var coldstorage: Lsm = undefined;
+var options: LsmStorageOptions = .{};
+
+export fn set_options(
+    block_size: u32,
+    target_sst_size: u32,
+    num_memtable_limit: u32,
+    enable_wal: bool,
+) callconv(.c) void {
+    options = .{
+        .block_size = block_size,
+        .target_sst_size = target_sst_size,
+        .num_memtable_limit = num_memtable_limit,
+        .enable_wal = enable_wal,
+    };
+}
 
 export fn open(path: [*:0]u8) callconv(.c) void {
     const path_str = std.mem.span(path);
-    colderstorage = Db.open(path_str, .{}, gpa) catch {
-        @panic("Error opening database. Not enough memory");
+    coldstorage = Lsm.open(path_str, options, gpa) catch {
+        @panic("Error opening database");
     };
 }
 
 export fn close() callconv(.c) void {
-    colderstorage.close() catch @panic("Error closing database");
+    coldstorage.close() catch @panic("Error closing database");
 }
 
-export fn execute(sql: [*:0]u8) bool {
-    const str = std.mem.span(sql);
-    cursor = colderstorage.execute_sql(str) catch |err| {
-        if (err == Db.DbError.SqlError) {
-            return false;
-        }
-        @panic("Error executing sql statement");
-    };
-    return true;
+export fn put(key: [*:0]u8, val: [*:0]u8) callconv(.c) void {
+    const key_str = std.mem.span(key);
+    const val_str = std.mem.span(val);
+    coldstorage.put(key_str, val_str) catch @panic("Error putting key-value pair");
 }
 
-export fn list_tables() callconv(.c) void {
-    colderstorage.list_tables() catch @panic("Error listing tables");
+export fn get(key: [*:0]u8, buffer: [*:0]u8) u32 {
+    const key_str = std.mem.span(key);
+    const buffer_str = std.mem.span(buffer);
+    const actual = coldstorage.get(key_str, buffer_str) catch
+        @panic("Error getting key-value pair");
+    if (actual) |a| {
+        return @intCast(a.len);
+    }
+    return 0;
 }
 
-export fn display_table(table_name: [*:0]u8) callconv(.c) bool {
-    colderstorage.display_table(std.mem.span(table_name)) catch |err| {
-        if (err == Db.DbError.TableDoesNotExist) {
-            return false;
-        }
-        @panic("Error displaying table");
-    };
-    return true;
-}
-
-export fn fetch() bool {
-    return cursor.next() catch @panic("Error fetching sql result");
-}
-
-export fn cursor_write_schema() callconv(.c) void {
-    cursor.write_schema();
-}
-
-export fn close_cursor() callconv(.c) void {
-    cursor.close();
-}
-
-export fn get_buffer() [*:0]const u8 {
-    return colderstorage.get_result().ptr;
-}
-
-export fn get_buffer_len() u32 {
-    return @intCast(colderstorage.get_result_len());
+export fn remove(key: [*:0]u8) callconv(.c) void {
+    const key_str = std.mem.span(key);
+    coldstorage.del(key_str) catch @panic("Error deleting key-value pair");
 }
 
 export fn detect_leaks() bool {

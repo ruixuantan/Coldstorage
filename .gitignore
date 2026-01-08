@@ -6,3 +6,5 @@ zig-out/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+
+coldstorage.db/
