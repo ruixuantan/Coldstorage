@@ -2,6 +2,25 @@
 
 Toy LSM storage. Single threaded for simplicity. Referenced and followed: <https://skyzh.github.io/mini-lsm/>
 
+## Features
+
+* WAL
+* Bloom filter optimization
+* C FFI
+
+Example python script:
+```python
+from coldstorage import ColdStorage
+
+cs = ColdStorage("/path/to/db")
+with cs:
+    cs.put(b"key1", b"value1")
+    cs.put(b"key2", b"value2")
+    print(cs.get(b"key1"))  # b"value1"
+    cs.delete(b"key2")
+    print(cs.get(b"key2"))  # None
+```
+
 ## Setting up
 
 This project uses:
@@ -14,7 +33,8 @@ Running the python example:
 ```sh
 zig build
 cd python
-uv run main.py -p <path to where db folder is>
+uv sync
+uv run main.py
 ```
 
 Testing:
@@ -34,9 +54,6 @@ uv run ruff format
 
 ## TODOs
 
-* [x] Bloom filter optimization
-* [x] WAL
-* [x] C FFI
-* [ ] Storage compression
-* [ ] Improve compaction (consider tigerbeetle)
-* [ ] Implement SSTable Block cache
+* Storage compression
+* Improve compaction (consider tigerbeetle)
+* Implement SSTable Block cache
