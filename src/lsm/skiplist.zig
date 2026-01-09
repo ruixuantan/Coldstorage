@@ -6,6 +6,7 @@ fn SkiplistType(comptime max_height: usize, comptime p: u8) type {
         const Skiplist = @This();
 
         pub const Node = struct {
+            prev: *Node,
             next: [max_height]*Node,
             key: []const u8,
             val: []const u8,
@@ -28,6 +29,7 @@ fn SkiplistType(comptime max_height: usize, comptime p: u8) type {
             tail.*.height = 0;
             const head = try allocator.create(Node);
             head.* = Node{
+                .prev = undefined,
                 .next = .{tail} ** max_height,
                 .key = undefined,
                 .val = undefined,
@@ -102,6 +104,7 @@ fn SkiplistType(comptime max_height: usize, comptime p: u8) type {
 
             const new_node = try self.arena.allocator().create(Node);
             new_node.* = Node{
+                .prev = prevs[0],
                 .next = undefined,
                 .key = key,
                 .val = val,
@@ -111,6 +114,7 @@ fn SkiplistType(comptime max_height: usize, comptime p: u8) type {
                 new_node.*.next[h] = prevs[h].next[h];
                 prevs[h].*.next[h] = new_node;
             }
+            new_node.next[0].prev = new_node;
             self.size += 1;
         }
     };
@@ -118,7 +122,7 @@ fn SkiplistType(comptime max_height: usize, comptime p: u8) type {
 
 pub const DefaultSkiplist = SkiplistType(16, 2);
 
-test "Skiplist: put, get, iter" {
+test "Skiplist: put, get" {
     const test_gpa = std.testing.allocator;
     var skiplist = try SkiplistType(4, 2).init(test_gpa);
     defer skiplist.deinit();

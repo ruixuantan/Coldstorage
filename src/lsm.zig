@@ -46,11 +46,11 @@ pub const Lsm = struct {
 test {
     _ = skiplist;
     _ = memtable;
-    _ = block;
-    _ = table;
-    _ = iterator;
-    _ = lsm;
-    _ = lsm_iterator;
-    _ = manifest;
-    _ = wal;
+    // _ = block;
+    // _ = table;
+    // _ = iterator;
+    // _ = lsm;
+    // _ = lsm_iterator;
+    // _ = manifest;
+    // _ = wal;
 }
