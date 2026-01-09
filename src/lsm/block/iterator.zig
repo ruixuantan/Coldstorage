@@ -1,6 +1,5 @@
 const std = @import("std");
 const Block = @import("block.zig").Block;
-const Kv = @import("../kv.zig").Kv;
 
 pub const BlockIterator = struct {
     block: *const Block,

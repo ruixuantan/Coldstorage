@@ -1,6 +1,5 @@
 const std = @import("std");
 const TwoMergeIterator = @import("iterator.zig").TwoMergeIterator;
-const Kv = @import("kv.zig").Kv;
 
 pub const LsmIterator = struct {
     inner: TwoMergeIterator,

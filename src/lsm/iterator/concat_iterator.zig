@@ -3,7 +3,6 @@ const mem = std.mem;
 const SsTable = @import("../table.zig").SsTable;
 const SsTableError = SsTable.SsTableError;
 const SsTableIterator = @import("../table.zig").SsTableIterator;
-const Kv = @import("../kv.zig").Kv;
 
 pub const ConcatIterator = struct {
     itr: ?SsTableIterator,

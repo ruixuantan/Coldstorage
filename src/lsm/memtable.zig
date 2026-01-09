@@ -4,7 +4,6 @@ const fs = std.fs;
 const DefaultSkiplist = @import("skiplist.zig").DefaultSkiplist;
 const SsTableBuilder = @import("table.zig").SsTableBuilder;
 const Wal = @import("wal.zig").Wal;
-const Kv = @import("kv.zig").Kv;
 
 pub const Memtable = struct {
     pub const MemtableIterator = struct {

@@ -4,7 +4,8 @@ const memtable = @import("../memtable.zig");
 const MemtableIterator = memtable.Memtable.MemtableIterator;
 const Iterator = @import("iterator.zig").Iterator;
 const IteratorError = Iterator.IteratorError;
-const Kv = @import("../kv.zig").Kv;
+
+const Kv = struct { key: []const u8, val: []const u8 };
 
 pub const MergeIterator = struct {
     const HeapNode = struct { itr_idx: usize, kv: Kv };

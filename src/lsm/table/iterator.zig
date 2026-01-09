@@ -3,7 +3,6 @@ const SsTable = @import("table.zig").SsTable;
 const SsTableError = SsTable.SsTableError;
 const Block = @import("../block.zig").block.Block;
 const BlockIterator = @import("../block.zig").iterator.BlockIterator;
-const Kv = @import("../kv.zig").Kv;
 
 pub const SsTableIterator = struct {
     table: *SsTable,

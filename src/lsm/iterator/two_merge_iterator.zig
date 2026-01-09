@@ -1,11 +1,8 @@
 const std = @import("std");
 const Iterator = @import("iterator.zig").Iterator;
 const IteratorError = Iterator.IteratorError;
-const Kv = @import("../kv.zig").Kv;
 
 pub const TwoMergeIterator = struct {
-    const Node = ?Kv;
-
     a: *Iterator,
     b: *Iterator,
     gpa: std.mem.Allocator,
