@@ -9,8 +9,8 @@ const Kv = @import("kv.zig").Kv;
 pub const Memtable = struct {
     pub const MemtableIterator = struct {
         curr: *DefaultSkiplist.Node,
-        start: *DefaultSkiplist.Node,
-        end: *DefaultSkiplist.Node,
+        head: *DefaultSkiplist.Node,
+        tail: *DefaultSkiplist.Node,
 
         pub fn key(self: MemtableIterator) []const u8 {
             return self.curr.key;
@@ -21,7 +21,7 @@ pub const Memtable = struct {
         }
 
         pub fn is_valid(self: *MemtableIterator) bool {
-            return self.curr != self.end and self.curr != self.start.prev;
+            return self.curr != self.tail and self.curr != self.head.prev;
         }
 
         pub fn next(self: *MemtableIterator) void {
@@ -97,12 +97,12 @@ pub const Memtable = struct {
 
     // [lower, upper)
     pub fn scan(self: Memtable, lower: []const u8, upper: []const u8) MemtableIterator {
+        _ = upper;
         const start_node = self.skiplist.get_greater_or_equal_to(lower);
-        const end_node = self.skiplist.get_greater_or_equal_to(upper);
         return MemtableIterator{
             .curr = start_node,
-            .start = start_node,
-            .end = end_node,
+            .head = self.skiplist.head,
+            .tail = self.skiplist.tail,
         };
     }
 
@@ -146,14 +146,21 @@ test "Memtable: scan" {
     try std.testing.expect(iter1_4.is_valid());
     try std.testing.expectEqualStrings("value3", iter1_4.val());
     iter1_4.next();
+    try std.testing.expect(iter1_4.is_valid());
+    iter1_4.next();
     try std.testing.expect(!iter1_4.is_valid());
 
+    iter1_4.prev();
+    try std.testing.expect(iter1_4.is_valid());
+    try std.testing.expectEqualStrings("value4", iter1_4.val());
     iter1_4.prev();
     try std.testing.expect(iter1_4.is_valid());
     try std.testing.expectEqualStrings("value3", iter1_4.val());
     iter1_4.prev();
     try std.testing.expect(iter1_4.is_valid());
     try std.testing.expectEqualStrings("value1", iter1_4.val());
+    iter1_4.prev();
+    try std.testing.expect(iter1_4.is_valid());
     iter1_4.prev();
     try std.testing.expect(!iter1_4.is_valid());
 
@@ -163,9 +170,7 @@ test "Memtable: scan" {
     iter2_5.next();
     try std.testing.expect(iter2_5.is_valid());
     try std.testing.expectEqualStrings("value4", iter2_5.val());
-    iter2_5.next();
-    try std.testing.expect(!iter2_5.is_valid());
 
     var iter2_3 = memtable.scan("2", "3");
-    try std.testing.expect(!iter2_3.is_valid());
+    try std.testing.expect(iter2_3.is_valid());
 }

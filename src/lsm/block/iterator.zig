@@ -8,7 +8,7 @@ pub const BlockIterator = struct {
     key_end_offset: usize,
     val_start_offset: usize,
     val_end_offset: usize,
-    idx: usize, // index of the current entry, not byte offset
+    idx: i64, // index of the current entry, not byte offset
 
     fn init(block: *const Block) BlockIterator {
         return BlockIterator{
@@ -22,28 +22,32 @@ pub const BlockIterator = struct {
     }
 
     fn seek_to_idx(self: *BlockIterator, target_idx: usize) void {
-        std.debug.assert(target_idx < self.block.offsets.len);
+        if (target_idx >= self.block.offsets.len) return;
 
         const offset: usize = @intCast(self.block.offsets[target_idx]);
-        const key_len: usize = @intCast(std.mem.bytesAsValue(u16, self.block.data[offset .. offset + 2]).*);
+        const key_len: usize = @intCast(
+            std.mem.bytesAsValue(u16, self.block.data[offset .. offset + 2]).*,
+        );
         const val_offset = key_len + 2 + offset;
-        const val_len: usize = @intCast(std.mem.bytesAsValue(u16, self.block.data[val_offset .. val_offset + 2]).*);
+        const val_len: usize = @intCast(
+            std.mem.bytesAsValue(u16, self.block.data[val_offset .. val_offset + 2]).*,
+        );
 
         self.key_start_offset = offset + 2;
         self.key_end_offset = self.key_start_offset + key_len;
         self.val_start_offset = val_offset + 2;
         self.val_end_offset = self.val_start_offset + val_len;
-        self.idx = target_idx;
+        self.idx = @intCast(target_idx);
     }
 
-    pub fn init_and_seek_to_first(block: *const Block) !BlockIterator {
+    pub fn init_and_seek_to_first(block: *const Block) BlockIterator {
         var it = BlockIterator.init(block);
         it.seek_to_idx(0);
         return it;
     }
 
     // will seek to self.key >= target_key
-    pub fn init_and_seek_to_key(block: *const Block, target_key: []const u8) !BlockIterator {
+    pub fn init_and_seek_to_key(block: *const Block, target_key: []const u8) BlockIterator {
         var it = BlockIterator.init(block);
         var lo: usize = 0;
         var hi: usize = block.offsets.len;
@@ -51,7 +55,11 @@ pub const BlockIterator = struct {
         while (lo < hi) {
             const mid: usize = lo + @divFloor((hi - lo), 2);
             it.seek_to_idx(mid);
-            const ord = std.mem.order(u8, it.block.data[it.key_start_offset..it.key_end_offset], target_key);
+            const ord = std.mem.order(
+                u8,
+                it.block.data[it.key_start_offset..it.key_end_offset],
+                target_key,
+            );
             switch (ord) {
                 .eq => return it,
                 .lt => lo = mid + 1,
@@ -62,15 +70,27 @@ pub const BlockIterator = struct {
         return it;
     }
 
-    pub fn next(self: *BlockIterator) !?Kv {
-        if (self.idx >= self.block.offsets.len) {
-            return null;
-        }
-        self.seek_to_idx(self.idx);
-        const key = self.block.data[self.key_start_offset..self.key_end_offset];
-        const val = self.block.data[self.val_start_offset..self.val_end_offset];
+    pub fn key(self: *BlockIterator) []const u8 {
+        return self.block.data[self.key_start_offset..self.key_end_offset];
+    }
+
+    pub fn val(self: *BlockIterator) []const u8 {
+        return self.block.data[self.val_start_offset..self.val_end_offset];
+    }
+
+    pub fn is_valid(self: *BlockIterator) bool {
+        return self.idx < self.block.offsets.len and self.idx >= 0;
+    }
+
+    pub fn next(self: *BlockIterator) void {
         self.idx += 1;
-        return Kv.init(key, val);
+        self.seek_to_idx(@intCast(self.idx));
+    }
+
+    pub fn prev(self: *BlockIterator) void {
+        self.idx -= 1;
+        std.debug.assert(self.idx >= 0);
+        self.seek_to_idx(@intCast(self.idx));
     }
 };
 
@@ -83,16 +103,16 @@ test "BlockIterator: init_and_seek_to_first, next" {
     const block = try builder.build();
     defer block.deinit();
 
-    var it = try BlockIterator.init_and_seek_to_first(&block);
-    const first = try it.next();
-    try std.testing.expectEqualStrings("key1", first.?.key);
-    try std.testing.expectEqualStrings("val1", first.?.val);
-
-    const second = try it.next();
-    try std.testing.expectEqualStrings("k2", second.?.key);
-    try std.testing.expectEqualStrings("v2", second.?.val);
-
-    try std.testing.expectEqual(null, try it.next());
+    var it = BlockIterator.init_and_seek_to_first(&block);
+    try std.testing.expect(it.is_valid());
+    try std.testing.expectEqualStrings("key1", it.key());
+    try std.testing.expectEqualStrings("val1", it.val());
+    it.next();
+    try std.testing.expect(it.is_valid());
+    try std.testing.expectEqualStrings("k2", it.key());
+    try std.testing.expectEqualStrings("v2", it.val());
+    it.next();
+    try std.testing.expect(!it.is_valid());
 }
 
 test "BlockIterator: init_and_seek_to_key, next" {
@@ -105,21 +125,25 @@ test "BlockIterator: init_and_seek_to_key, next" {
     const block = try builder.build();
     defer block.deinit();
 
-    var it_exact = try BlockIterator.init_and_seek_to_key(&block, "c");
-    const c = try it_exact.next();
-    try std.testing.expectEqualStrings("c", c.?.key);
-    try std.testing.expectEqualStrings("3", c.?.val);
-    const d = try it_exact.next();
-    try std.testing.expectEqualStrings("d", d.?.key);
-    try std.testing.expectEqualStrings("4", d.?.val);
-    try std.testing.expectEqual(null, try it_exact.next());
+    var it_exact = BlockIterator.init_and_seek_to_key(&block, "c");
+    try std.testing.expect(it_exact.is_valid());
+    try std.testing.expectEqualStrings("c", it_exact.key());
+    try std.testing.expectEqualStrings("3", it_exact.val());
+    it_exact.next();
+    try std.testing.expect(it_exact.is_valid());
+    try std.testing.expectEqualStrings("d", it_exact.key());
+    try std.testing.expectEqualStrings("4", it_exact.val());
+    it_exact.next();
+    try std.testing.expect(!it_exact.is_valid());
 
-    var it_off = try BlockIterator.init_and_seek_to_key(&block, "b");
-    const c_off = try it_off.next();
-    try std.testing.expectEqualStrings("c", c_off.?.key);
-    try std.testing.expectEqualStrings("3", c_off.?.val);
-    const d_off = try it_off.next();
-    try std.testing.expectEqualStrings("d", d_off.?.key);
-    try std.testing.expectEqualStrings("4", d_off.?.val);
-    try std.testing.expectEqual(null, it_off.next());
+    var it_off = BlockIterator.init_and_seek_to_key(&block, "b");
+    try std.testing.expect(it_off.is_valid());
+    try std.testing.expectEqualStrings("c", it_off.key());
+    try std.testing.expectEqualStrings("3", it_off.val());
+    it_off.next();
+    try std.testing.expect(it_off.is_valid());
+    try std.testing.expectEqualStrings("d", it_off.key());
+    try std.testing.expectEqualStrings("4", it_off.val());
+    it_off.next();
+    try std.testing.expect(!it_off.is_valid());
 }

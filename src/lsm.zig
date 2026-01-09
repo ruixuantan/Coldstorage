@@ -46,7 +46,7 @@ pub const Lsm = struct {
 test {
     _ = skiplist;
     _ = memtable;
-    // _ = block;
+    _ = block;
     // _ = table;
     // _ = iterator;
     // _ = lsm;
