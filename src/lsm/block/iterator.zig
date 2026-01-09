@@ -46,6 +46,12 @@ pub const BlockIterator = struct {
         return it;
     }
 
+    pub fn init_and_seek_to_last(block: *const Block) BlockIterator {
+        var it = BlockIterator.init(block);
+        it.seek_to_idx(block.offsets.len - 1);
+        return it;
+    }
+
     // will seek to self.key >= target_key
     pub fn init_and_seek_to_key(block: *const Block, target_key: []const u8) BlockIterator {
         var it = BlockIterator.init(block);
@@ -70,15 +76,15 @@ pub const BlockIterator = struct {
         return it;
     }
 
-    pub fn key(self: *BlockIterator) []const u8 {
+    pub fn key(self: BlockIterator) []const u8 {
         return self.block.data[self.key_start_offset..self.key_end_offset];
     }
 
-    pub fn val(self: *BlockIterator) []const u8 {
+    pub fn val(self: BlockIterator) []const u8 {
         return self.block.data[self.val_start_offset..self.val_end_offset];
     }
 
-    pub fn is_valid(self: *BlockIterator) bool {
+    pub fn is_valid(self: BlockIterator) bool {
         return self.idx < self.block.offsets.len and self.idx >= 0;
     }
 
@@ -89,7 +95,7 @@ pub const BlockIterator = struct {
 
     pub fn prev(self: *BlockIterator) void {
         self.idx -= 1;
-        std.debug.assert(self.idx >= 0);
+        if (self.idx < 0) return;
         self.seek_to_idx(@intCast(self.idx));
     }
 };
@@ -112,6 +118,18 @@ test "BlockIterator: init_and_seek_to_first, next" {
     try std.testing.expectEqualStrings("k2", it.key());
     try std.testing.expectEqualStrings("v2", it.val());
     it.next();
+    try std.testing.expect(!it.is_valid());
+
+    it.prev();
+    try std.testing.expect(it.is_valid());
+    try std.testing.expectEqualStrings("k2", it.key());
+    try std.testing.expectEqualStrings("v2", it.val());
+
+    it.prev();
+    try std.testing.expect(it.is_valid());
+    try std.testing.expectEqualStrings("key1", it.key());
+    try std.testing.expectEqualStrings("val1", it.val());
+    it.prev();
     try std.testing.expect(!it.is_valid());
 }
 
