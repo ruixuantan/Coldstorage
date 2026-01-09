@@ -8,7 +8,7 @@ pub const BlockIterator = struct {
     key_end_offset: usize,
     val_start_offset: usize,
     val_end_offset: usize,
-    idx: i64, // index of the current entry, not byte offset
+    idx: usize, // index of the current entry, not byte offset
 
     fn init(block: *const Block) BlockIterator {
         return BlockIterator{
@@ -37,7 +37,7 @@ pub const BlockIterator = struct {
         self.key_end_offset = self.key_start_offset + key_len;
         self.val_start_offset = val_offset + 2;
         self.val_end_offset = self.val_start_offset + val_len;
-        self.idx = @intCast(target_idx);
+        self.idx = target_idx;
     }
 
     pub fn init_and_seek_to_first(block: *const Block) BlockIterator {
@@ -85,18 +85,12 @@ pub const BlockIterator = struct {
     }
 
     pub fn is_valid(self: BlockIterator) bool {
-        return self.idx < self.block.offsets.len and self.idx >= 0;
+        return self.idx < self.block.offsets.len;
     }
 
     pub fn next(self: *BlockIterator) void {
         self.idx += 1;
-        self.seek_to_idx(@intCast(self.idx));
-    }
-
-    pub fn prev(self: *BlockIterator) void {
-        self.idx -= 1;
-        if (self.idx < 0) return;
-        self.seek_to_idx(@intCast(self.idx));
+        self.seek_to_idx(self.idx);
     }
 };
 
@@ -118,18 +112,6 @@ test "BlockIterator: init_and_seek_to_first, next" {
     try std.testing.expectEqualStrings("k2", it.key());
     try std.testing.expectEqualStrings("v2", it.val());
     it.next();
-    try std.testing.expect(!it.is_valid());
-
-    it.prev();
-    try std.testing.expect(it.is_valid());
-    try std.testing.expectEqualStrings("k2", it.key());
-    try std.testing.expectEqualStrings("v2", it.val());
-
-    it.prev();
-    try std.testing.expect(it.is_valid());
-    try std.testing.expectEqualStrings("key1", it.key());
-    try std.testing.expectEqualStrings("val1", it.val());
-    it.prev();
     try std.testing.expect(!it.is_valid());
 }
 

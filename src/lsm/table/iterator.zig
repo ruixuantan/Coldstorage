@@ -8,7 +8,7 @@ const Kv = @import("../kv.zig").Kv;
 pub const SsTableIterator = struct {
     table: *SsTable,
     block_iterator: BlockIterator,
-    block_index: i64,
+    block_index: usize,
     block: *Block,
 
     pub fn deinit(self: SsTableIterator) void {
@@ -61,7 +61,7 @@ pub const SsTableIterator = struct {
             itr = BlockIterator.init_and_seek_to_key(self.block, k);
         }
         self.block_iterator = itr;
-        self.block_index = @intCast(block_index);
+        self.block_index = block_index;
     }
 
     pub fn key(self: SsTableIterator) []const u8 {
@@ -73,7 +73,7 @@ pub const SsTableIterator = struct {
     }
 
     pub fn is_valid(self: SsTableIterator) bool {
-        if (self.block_index < self.table.block_metas.len - 1 and self.block_index > 0) {
+        if (self.block_index < self.table.block_metas.len - 1) {
             return true;
         } else {
             return self.block_iterator.is_valid();
@@ -87,25 +87,13 @@ pub const SsTableIterator = struct {
         if (self.block_index >= self.table.block_metas.len - 1) return;
         self.block_index += 1;
         self.block.deinit();
-        const new_block = try self.table.read_block(@intCast(self.block_index));
+        const new_block = try self.table.read_block(self.block_index);
         self.block.* = new_block;
         self.block_iterator = BlockIterator.init_and_seek_to_first(self.block);
     }
-
-    pub fn prev(self: *SsTableIterator) SsTableError!void {
-        self.block_iterator.prev();
-        if (self.block_iterator.is_valid()) return;
-
-        if (self.block_index == 0) return;
-        self.block_index -= 1;
-        self.block.deinit();
-        const new_block = try self.table.read_block(@intCast(self.block_index));
-        self.block.* = new_block;
-        self.block_iterator = BlockIterator.init_and_seek_to_last(self.block);
-    }
 };
 
-test "SsTableIterator: create_and_seek_to_first, next, prev" {
+test "SsTableIterator: create_and_seek_to_first, next" {
     const test_gpa = std.testing.allocator;
     const test_sstable = @import("test_table.zig");
     var sst = try test_sstable.create_sst_test("sst_table_iterator_test.sst", test_gpa);
@@ -132,29 +120,6 @@ test "SsTableIterator: create_and_seek_to_first, next, prev" {
     try std.testing.expectEqualStrings("key5", itr.key());
     try std.testing.expectEqualStrings("val5", itr.val());
     try itr.next();
-    try std.testing.expect(!itr.is_valid());
-
-    try itr.prev();
-    try std.testing.expect(itr.is_valid());
-    try std.testing.expectEqualStrings("key5", itr.key());
-    try std.testing.expectEqualStrings("val5", itr.val());
-    try itr.prev();
-    try std.testing.expect(itr.is_valid());
-    try std.testing.expectEqualStrings("key4", itr.key());
-    try std.testing.expectEqualStrings("val4", itr.val());
-    try itr.prev();
-    try std.testing.expect(itr.is_valid());
-    try std.testing.expectEqualStrings("key3", itr.key());
-    try std.testing.expectEqualStrings("val3", itr.val());
-    try itr.prev();
-    try std.testing.expect(itr.is_valid());
-    try std.testing.expectEqualStrings("key2", itr.key());
-    try std.testing.expectEqualStrings("val2", itr.val());
-    try itr.prev();
-    try std.testing.expect(itr.is_valid());
-    try std.testing.expectEqualStrings("key1", itr.key());
-    try std.testing.expectEqualStrings("val1", itr.val());
-    try itr.prev();
     try std.testing.expect(!itr.is_valid());
 }
 
