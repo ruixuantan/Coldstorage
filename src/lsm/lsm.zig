@@ -261,9 +261,11 @@ pub const LsmStorageInner = struct {
         }
         var l0_merge_itr = try MergeIterator.init(self.gpa, try l0_itrs.toOwnedSlice(self.gpa));
         defer l0_merge_itr.deinit();
-        if (try l0_merge_itr.next()) |kv| {
-            if (std.mem.eql(u8, kv.key, key)) {
-                return if (kv.val.len == 0) null else buf_print(kv.val, buf);
+        if (l0_merge_itr.is_valid()) {
+            const k = l0_merge_itr.key();
+            const v = l0_merge_itr.val();
+            if (std.mem.eql(u8, k, key)) {
+                return if (v.len == 0) null else buf_print(v, buf);
             }
         }
 
@@ -271,9 +273,11 @@ pub const LsmStorageInner = struct {
         for (self.state.levels.items) |level| {
             var merge_itr = try ConcatIterator.create_and_seek_to_key(level.items, key);
             defer merge_itr.deinit();
-            if (try merge_itr.next()) |kv| {
-                if (std.mem.eql(u8, kv.key, key)) {
-                    return if (kv.val.len == 0) null else buf_print(kv.val, buf);
+            if (merge_itr.is_valid()) {
+                const k = merge_itr.key();
+                const v = merge_itr.val();
+                if (std.mem.eql(u8, k, key)) {
+                    return if (v.len == 0) null else buf_print(v, buf);
                 }
             }
         }
@@ -420,14 +424,16 @@ pub const LsmStorageInner = struct {
         var sst_builder = try SsTableBuilder.init(self.options.block_size, self.gpa);
 
         var next = try itr.next();
-        while (next) |kv| {
+        while (itr.is_valid()) {
+            const k = itr.key();
+            const v = itr.val();
             if (sst_builder.estimated_size() >= self.options.target_sst_size) {
                 const next_sst_id = self.state.get_next_sst_id();
                 const sst = try self.build_sst(&sst_builder, next_sst_id);
                 try new_ssts.append(self.gpa, sst);
                 sst_builder = try SsTableBuilder.init(self.options.block_size, self.gpa);
             }
-            try sst_builder.add(kv.key, kv.val);
+            try sst_builder.add(k, v);
             next = try itr.next();
         }
         const next_sst_id = self.state.get_next_sst_id();
@@ -532,12 +538,13 @@ test "LsmStorageInner: scan" {
     var itr = try lsm.scan("b", "e");
     defer itr.inner.deinit();
 
-    const c = try itr.next();
-    try std.testing.expectEqualStrings("3", c.?.val);
-    const d = try itr.next();
-    try std.testing.expectEqualStrings("7", d.?.val);
-    const e = try itr.next();
-    try std.testing.expectEqual(null, e);
+    try std.testing.expect(itr.is_valid());
+    try std.testing.expectEqualStrings("3", itr.val());
+    try itr.next();
+    try std.testing.expect(itr.is_valid());
+    try std.testing.expectEqualStrings("7", itr.val());
+    try itr.next();
+    try std.testing.expect(!itr.is_valid());
 }
 
 test "LsmStorageInner: recover" {

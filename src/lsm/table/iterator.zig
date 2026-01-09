@@ -1,8 +1,8 @@
 const std = @import("std");
 const SsTable = @import("table.zig").SsTable;
+const SsTableError = SsTable.SsTableError;
 const Block = @import("../block.zig").block.Block;
 const BlockIterator = @import("../block.zig").iterator.BlockIterator;
-const Kv = @import("../kv.zig").Kv;
 
 pub const SsTableIterator = struct {
     table: *SsTable,
@@ -15,7 +15,7 @@ pub const SsTableIterator = struct {
         self.table.gpa.destroy(self.block);
     }
 
-    pub fn create_and_seek_to_first(table: *SsTable) !SsTableIterator {
+    pub fn create_and_seek_to_first(table: *SsTable) SsTableError!SsTableIterator {
         const block = try table.gpa.create(Block);
         var itr = SsTableIterator{
             .table = table,
@@ -27,13 +27,13 @@ pub const SsTableIterator = struct {
         return itr;
     }
 
-    pub fn seek_to_first(self: *SsTableIterator) !void {
+    pub fn seek_to_first(self: *SsTableIterator) SsTableError!void {
         self.block_index = 0;
-        self.block.* = try self.table.read_block(self.block_index);
-        self.block_iterator = try BlockIterator.init_and_seek_to_first(self.block);
+        self.block.* = try self.table.read_block(@intCast(self.block_index));
+        self.block_iterator = BlockIterator.init_and_seek_to_first(self.block);
     }
 
-    pub fn create_and_seek_to_key(table: *SsTable, key: []const u8) !SsTableIterator {
+    pub fn create_and_seek_to_key(table: *SsTable, k: []const u8) SsTableError!SsTableIterator {
         const block = try table.gpa.create(Block);
         var itr = SsTableIterator{
             .table = table,
@@ -41,44 +41,54 @@ pub const SsTableIterator = struct {
             .block_index = undefined,
             .block = block,
         };
-        try itr.seek_to_key(key);
+        try itr.seek_to_key(k);
         return itr;
     }
 
-    pub fn seek_to_key(self: *SsTableIterator, key: []const u8) !void {
-        var block_index = self.table.find_block_index(key);
+    pub fn seek_to_key(self: *SsTableIterator, k: []const u8) SsTableError!void {
+        var block_index = self.table.find_block_index(k);
         var itr: BlockIterator = undefined;
         if (block_index >= self.table.block_metas.len) {
             const meta = self.table.block_metas[self.table.block_metas.len - 1];
             self.block.* = try self.table.read_block(self.table.block_metas.len - 1);
-            itr = try BlockIterator.init_and_seek_to_key(self.block, meta.last_key);
-            _ = try itr.next();
+            itr = BlockIterator.init_and_seek_to_key(self.block, meta.last_key);
+            itr.next();
             block_index = self.table.block_metas.len - 1;
             return;
         } else {
             self.block.* = try self.table.read_block(block_index);
-            itr = try BlockIterator.init_and_seek_to_key(self.block, key);
+            itr = BlockIterator.init_and_seek_to_key(self.block, k);
         }
         self.block_iterator = itr;
         self.block_index = block_index;
     }
 
-    pub fn next(self: *SsTableIterator) !?Kv {
-        const next_tuple = try self.block_iterator.next();
-        if (next_tuple) |tuple| {
-            return Kv.init(tuple.key, tuple.val);
+    pub fn key(self: SsTableIterator) []const u8 {
+        return self.block_iterator.key();
+    }
+
+    pub fn val(self: SsTableIterator) []const u8 {
+        return self.block_iterator.val();
+    }
+
+    pub fn is_valid(self: SsTableIterator) bool {
+        if (self.block_index < self.table.block_metas.len - 1) {
+            return true;
         } else {
-            if (self.block_index < self.table.block_metas.len - 1) {
-                self.block_index += 1;
-                self.block.deinit();
-                const new_block = try self.table.read_block(self.block_index);
-                self.block.* = new_block;
-                self.block_iterator = try BlockIterator.init_and_seek_to_first(self.block);
-                return try self.next();
-            } else {
-                return null;
-            }
+            return self.block_iterator.is_valid();
         }
+    }
+
+    pub fn next(self: *SsTableIterator) SsTableError!void {
+        self.block_iterator.next();
+        if (self.block_iterator.is_valid()) return;
+
+        if (self.block_index >= self.table.block_metas.len - 1) return;
+        self.block_index += 1;
+        self.block.deinit();
+        const new_block = try self.table.read_block(self.block_index);
+        self.block.* = new_block;
+        self.block_iterator = BlockIterator.init_and_seek_to_first(self.block);
     }
 };
 
@@ -89,22 +99,27 @@ test "SsTableIterator: create_and_seek_to_first, next" {
     defer test_sstable.close_sst_test(&sst, "sst_table_iterator_test.sst");
     var itr = try SsTableIterator.create_and_seek_to_first(&sst);
     defer itr.deinit();
-    const first = try itr.next();
-    try std.testing.expectEqualStrings("key1", first.?.key);
-    try std.testing.expectEqualStrings("val1", first.?.val);
-    const second = try itr.next();
-    try std.testing.expectEqualStrings("key2", second.?.key);
-    try std.testing.expectEqualStrings("val2", second.?.val);
-    const third = try itr.next();
-    try std.testing.expectEqualStrings("key3", third.?.key);
-    try std.testing.expectEqualStrings("val3", third.?.val);
-    const fourth = try itr.next();
-    try std.testing.expectEqualStrings("key4", fourth.?.key);
-    try std.testing.expectEqualStrings("val4", fourth.?.val);
-    const fifth = try itr.next();
-    try std.testing.expectEqualStrings("key5", fifth.?.key);
-    try std.testing.expectEqualStrings("val5", fifth.?.val);
-    try std.testing.expectEqual(null, itr.next());
+    try std.testing.expect(itr.is_valid());
+    try std.testing.expectEqualStrings("key1", itr.key());
+    try std.testing.expectEqualStrings("val1", itr.val());
+    try itr.next();
+    try std.testing.expect(itr.is_valid());
+    try std.testing.expectEqualStrings("key2", itr.key());
+    try std.testing.expectEqualStrings("val2", itr.val());
+    try itr.next();
+    try std.testing.expect(itr.is_valid());
+    try std.testing.expectEqualStrings("key3", itr.key());
+    try std.testing.expectEqualStrings("val3", itr.val());
+    try itr.next();
+    try std.testing.expect(itr.is_valid());
+    try std.testing.expectEqualStrings("key4", itr.key());
+    try std.testing.expectEqualStrings("val4", itr.val());
+    try itr.next();
+    try std.testing.expect(itr.is_valid());
+    try std.testing.expectEqualStrings("key5", itr.key());
+    try std.testing.expectEqualStrings("val5", itr.val());
+    try itr.next();
+    try std.testing.expect(!itr.is_valid());
 }
 
 test "SsTableIterator: create_and_seek_to_key, next" {
@@ -114,14 +129,17 @@ test "SsTableIterator: create_and_seek_to_key, next" {
     defer test_sstable.close_sst_test(&sst, "sst_table_iterator_test.sst");
     var itr = try SsTableIterator.create_and_seek_to_key(&sst, "key3");
     defer itr.deinit();
-    const third = try itr.next();
-    try std.testing.expectEqualStrings("key3", third.?.key);
-    try std.testing.expectEqualStrings("val3", third.?.val);
-    const fourth = try itr.next();
-    try std.testing.expectEqualStrings("key4", fourth.?.key);
-    try std.testing.expectEqualStrings("val4", fourth.?.val);
-    const fifth = try itr.next();
-    try std.testing.expectEqualStrings("key5", fifth.?.key);
-    try std.testing.expectEqualStrings("val5", fifth.?.val);
-    try std.testing.expectEqual(null, itr.next());
+    try std.testing.expect(itr.is_valid());
+    try std.testing.expectEqualStrings("key3", itr.key());
+    try std.testing.expectEqualStrings("val3", itr.val());
+    try itr.next();
+    try std.testing.expect(itr.is_valid());
+    try std.testing.expectEqualStrings("key4", itr.key());
+    try std.testing.expectEqualStrings("val4", itr.val());
+    try itr.next();
+    try std.testing.expect(itr.is_valid());
+    try std.testing.expectEqualStrings("key5", itr.key());
+    try std.testing.expectEqualStrings("val5", itr.val());
+    try itr.next();
+    try std.testing.expect(!itr.is_valid());
 }

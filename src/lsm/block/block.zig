@@ -21,7 +21,7 @@ pub const Block = struct {
         return try data_builder.toOwnedSlice(gpa);
     }
 
-    pub fn decode(data: []const u8, gpa: mem.Allocator) !Block {
+    pub fn decode(data: []const u8, gpa: mem.Allocator) error{OutOfMemory}!Block {
         const num_elements: u16 = mem.bytesAsValue(u16, data[data.len - 2 ..]).*;
         const offsets_start = data.len - 2 - (@as(usize, @intCast(num_elements)) * 2);
         const data_ls = try gpa.alloc(u8, data[0..offsets_start].len);

@@ -3,7 +3,9 @@ const mem = std.mem;
 const memtable = @import("../memtable.zig");
 const MemtableIterator = memtable.Memtable.MemtableIterator;
 const Iterator = @import("iterator.zig").Iterator;
-const Kv = @import("../kv.zig").Kv;
+const IteratorError = Iterator.IteratorError;
+
+const Kv = struct { key: []const u8, val: []const u8 };
 
 pub const MergeIterator = struct {
     const HeapNode = struct { itr_idx: usize, kv: Kv };
@@ -22,14 +24,16 @@ pub const MergeIterator = struct {
     heap: Heap,
     iterators: []Iterator,
 
-    pub fn init(gpa: mem.Allocator, iterators: []Iterator) !MergeIterator {
+    pub fn init(gpa: mem.Allocator, iterators: []Iterator) IteratorError!MergeIterator {
         var heap = Heap.init(gpa, {});
         for (iterators, 0..) |*it, idx| {
-            const n = try it.*.next();
-            if (n) |kv| {
+            // try it.next();
+            if (it.is_valid()) {
+                const k = it.key();
+                const v = it.val();
                 heap.add(HeapNode{
                     .itr_idx = idx,
-                    .kv = kv,
+                    .kv = .{ .key = k, .val = v },
                 }) catch @panic("PriorityQueue allocation failed");
             }
         }
@@ -48,27 +52,44 @@ pub const MergeIterator = struct {
         self.heap.deinit();
     }
 
+    pub fn key(self: *MergeIterator) []const u8 {
+        return self.heap.peek().?.kv.key;
+    }
+
+    pub fn val(self: *MergeIterator) []const u8 {
+        return self.heap.peek().?.kv.val;
+    }
+
+    pub fn is_valid(self: MergeIterator) bool {
+        return self.heap.items.len > 0;
+    }
+
     // k-way merge
-    pub fn next(self: *MergeIterator) !?Kv {
-        if (self.heap.items.len == 0) {
-            return null;
-        }
+    pub fn next(self: *MergeIterator) IteratorError!void {
         const min = self.heap.remove();
         var dup = self.heap.peek();
         while (dup != null and mem.eql(u8, min.kv.key, dup.?.kv.key)) {
             const rm = self.heap.remove();
             dup = self.heap.peek();
-            const n = try self.iterators[rm.itr_idx].next();
-            if (n) |kv| {
-                try self.heap.add(HeapNode{ .itr_idx = rm.itr_idx, .kv = kv });
+            try self.iterators[rm.itr_idx].next();
+            if (self.iterators[rm.itr_idx].is_valid()) {
+                const k = self.iterators[rm.itr_idx].key();
+                const v = self.iterators[rm.itr_idx].val();
+                try self.heap.add(HeapNode{
+                    .itr_idx = rm.itr_idx,
+                    .kv = .{ .key = k, .val = v },
+                });
             }
         }
-        const n = try self.iterators[min.itr_idx].next();
-        if (n) |kv| {
-            try self.heap.add(HeapNode{ .itr_idx = min.itr_idx, .kv = kv });
+        try self.iterators[min.itr_idx].next();
+        if (self.iterators[min.itr_idx].is_valid()) {
+            const k = self.iterators[min.itr_idx].key();
+            const v = self.iterators[min.itr_idx].val();
+            try self.heap.add(HeapNode{
+                .itr_idx = min.itr_idx,
+                .kv = .{ .key = k, .val = v },
+            });
         }
-
-        return Kv.init(min.kv.key, min.kv.val);
     }
 };
 
@@ -102,15 +123,20 @@ test "MergeIterator: next" {
     var merge_itr = try MergeIterator.init(test_gpa, try test_gpa.dupe(Iterator, itrs[0..]));
     defer merge_itr.deinit();
 
-    const a = try merge_itr.next();
-    try std.testing.expectEqualStrings("1", a.?.val);
-    const b = try merge_itr.next();
-    try std.testing.expectEqualStrings("", b.?.val);
-    const c = try merge_itr.next();
-    try std.testing.expectEqualStrings("4", c.?.val);
-    const d = try merge_itr.next();
-    try std.testing.expectEqualStrings("5", d.?.val);
-    const e = try merge_itr.next();
-    try std.testing.expectEqualStrings("4", e.?.val);
-    try std.testing.expectEqual(null, try merge_itr.next());
+    try std.testing.expect(merge_itr.is_valid());
+    try std.testing.expectEqualStrings("1", merge_itr.val());
+    try merge_itr.next();
+    try std.testing.expect(merge_itr.is_valid());
+    try std.testing.expectEqualStrings("", merge_itr.val());
+    try merge_itr.next();
+    try std.testing.expect(merge_itr.is_valid());
+    try std.testing.expectEqualStrings("4", merge_itr.val());
+    try merge_itr.next();
+    try std.testing.expect(merge_itr.is_valid());
+    try std.testing.expectEqualStrings("5", merge_itr.val());
+    try merge_itr.next();
+    try std.testing.expect(merge_itr.is_valid());
+    try std.testing.expectEqualStrings("4", merge_itr.val());
+    try merge_itr.next();
+    try std.testing.expect(!merge_itr.is_valid());
 }

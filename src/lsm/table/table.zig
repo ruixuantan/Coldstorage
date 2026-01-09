@@ -100,9 +100,9 @@ pub const FileReader = struct {
         return .{ .reader = file_reader, .buffer = buffer };
     }
 
-    pub fn seek_and_read(self: *FileReader, offset: usize, len: usize) ![]const u8 {
-        try self.reader.seekTo(offset);
-        return try self.reader.interface.take(len);
+    pub fn seek_and_read(self: *FileReader, offset: usize, len: usize) []const u8 {
+        self.reader.seekTo(offset) catch @panic("Offset out of range");
+        return self.reader.interface.take(len) catch @panic("Failed to read");
     }
 };
 
@@ -120,7 +120,7 @@ pub const FileReader = struct {
 // -------------------------------------------------------------------------------------------
 
 pub const SsTable = struct {
-    pub const SsTableError = error{ DiskCorruptedBlock, DiskCorruptedBloom };
+    pub const SsTableError = error{ DiskCorruptedBlock, DiskCorruptedBloom } || error{OutOfMemory};
 
     block_metas: []const BlockMeta,
     block_meta_offset: usize,
@@ -161,21 +161,21 @@ pub const SsTable = struct {
         const end = try file.getEndPos();
         var file_reader = FileReader.init(file);
         const bloom_offset: usize = @intCast(
-            mem.bytesAsValue(u32, try file_reader.seek_and_read(end - 4, 4)).*,
+            mem.bytesAsValue(u32, file_reader.seek_and_read(end - 4, 4)).*,
         );
-        const bloom_data = try file_reader.seek_and_read(bloom_offset, end - 4 - bloom_offset - 4);
+        const bloom_data = file_reader.seek_and_read(bloom_offset, end - 4 - bloom_offset - 4);
         const bloom_checksum = std.hash.Crc32.hash(bloom_data);
-        const stored_bloom_checksum_slice = try file_reader.seek_and_read(end - 4 - 4, 4);
+        const stored_bloom_checksum_slice = file_reader.seek_and_read(end - 4 - 4, 4);
         const stored_bloom_checksum: u32 = mem.bytesAsValue(u32, stored_bloom_checksum_slice).*;
         if (bloom_checksum != stored_bloom_checksum) return SsTableError.DiskCorruptedBloom;
 
         const bloom = try Bloom.decode(bloom_data, gpa);
 
         const block_meta_offset: usize = @intCast(
-            mem.bytesAsValue(u32, try file_reader.seek_and_read(bloom_offset - 4, 4)).*,
+            mem.bytesAsValue(u32, file_reader.seek_and_read(bloom_offset - 4, 4)).*,
         );
         const block_metas = try BlockMeta.decode_block_meta(
-            try file_reader.seek_and_read(block_meta_offset, bloom_offset - 4 - block_meta_offset),
+            file_reader.seek_and_read(block_meta_offset, bloom_offset - 4 - block_meta_offset),
             gpa,
         );
         return .{
@@ -204,16 +204,16 @@ pub const SsTable = struct {
         return self.block_metas.len;
     }
 
-    pub fn read_block(self: *SsTable, block_index: usize) !Block {
+    pub fn read_block(self: *SsTable, block_index: usize) SsTableError!Block {
         const offset = self.block_metas[block_index].offset;
         var end_offset = self.block_meta_offset;
         if (block_index + 1 < self.num_blocks()) {
             end_offset = self.block_metas[block_index + 1].offset;
         }
-        const block_data = try self.file_reader.seek_and_read(offset, end_offset - offset - 4);
+        const block_data = self.file_reader.seek_and_read(offset, end_offset - offset - 4);
         const checksum = std.hash.Crc32.hash(block_data);
 
-        const stored_checksum_slice = try self.file_reader.seek_and_read(end_offset - 4, 4);
+        const stored_checksum_slice = self.file_reader.seek_and_read(end_offset - 4, 4);
         const stored_checksum: u32 = mem.bytesAsValue(u32, stored_checksum_slice).*;
         if (checksum != stored_checksum) return SsTableError.DiskCorruptedBlock;
 

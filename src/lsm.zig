@@ -9,8 +9,6 @@ const table = @import("lsm/table.zig");
 const manifest = @import("lsm/manifest.zig");
 const wal = @import("lsm/wal.zig");
 
-pub const Kv = @import("lsm/kv.zig").Kv;
-
 pub const LsmStorageOptions = lsm.LsmStorageOptions;
 pub const LsmIterator = lsm_iterator.LsmIterator;
 

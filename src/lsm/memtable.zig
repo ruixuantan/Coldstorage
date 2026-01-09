@@ -4,25 +4,31 @@ const fs = std.fs;
 const DefaultSkiplist = @import("skiplist.zig").DefaultSkiplist;
 const SsTableBuilder = @import("table.zig").SsTableBuilder;
 const Wal = @import("wal.zig").Wal;
-const Kv = @import("kv.zig").Kv;
 
 pub const Memtable = struct {
     pub const MemtableIterator = struct {
         curr: *DefaultSkiplist.Node,
+        head: *DefaultSkiplist.Node,
         tail: *DefaultSkiplist.Node,
-        end: []const u8,
 
-        pub fn next(self: *MemtableIterator) !?Kv {
-            if (self.curr == self.tail) {
-                return null;
-            } else if (mem.order(u8, self.curr.key, self.end) != .lt) {
-                return null;
-            } else {
-                const key = self.curr.key;
-                const val = self.curr.val;
-                self.curr = self.curr.next[0];
-                return Kv.init(key, val);
-            }
+        pub fn key(self: MemtableIterator) []const u8 {
+            return self.curr.key;
+        }
+
+        pub fn val(self: MemtableIterator) []const u8 {
+            return self.curr.val;
+        }
+
+        pub fn is_valid(self: *MemtableIterator) bool {
+            return self.curr != self.tail and self.curr != self.head.prev;
+        }
+
+        pub fn next(self: *MemtableIterator) void {
+            self.curr = self.curr.next[0];
+        }
+
+        pub fn prev(self: *MemtableIterator) void {
+            self.curr = self.curr.prev;
         }
     };
 
@@ -90,11 +96,12 @@ pub const Memtable = struct {
 
     // [lower, upper)
     pub fn scan(self: Memtable, lower: []const u8, upper: []const u8) MemtableIterator {
+        _ = upper;
         const start_node = self.skiplist.get_greater_or_equal_to(lower);
         return MemtableIterator{
             .curr = start_node,
+            .head = self.skiplist.head,
             .tail = self.skiplist.tail,
-            .end = upper,
         };
     }
 
@@ -132,19 +139,37 @@ test "Memtable: scan" {
     try memtable.put("4", "value4");
 
     var iter1_4 = memtable.scan("1", "4");
-    const val1_4_1 = try iter1_4.next();
-    try std.testing.expectEqualStrings("value1", val1_4_1.?.val);
-    const val1_4_3 = try iter1_4.next();
-    try std.testing.expectEqualStrings("value3", val1_4_3.?.val);
-    try std.testing.expectEqual(null, try iter1_4.next());
+    try std.testing.expect(iter1_4.is_valid());
+    try std.testing.expectEqualStrings("value1", iter1_4.val());
+    iter1_4.next();
+    try std.testing.expect(iter1_4.is_valid());
+    try std.testing.expectEqualStrings("value3", iter1_4.val());
+    iter1_4.next();
+    try std.testing.expect(iter1_4.is_valid());
+    iter1_4.next();
+    try std.testing.expect(!iter1_4.is_valid());
+
+    iter1_4.prev();
+    try std.testing.expect(iter1_4.is_valid());
+    try std.testing.expectEqualStrings("value4", iter1_4.val());
+    iter1_4.prev();
+    try std.testing.expect(iter1_4.is_valid());
+    try std.testing.expectEqualStrings("value3", iter1_4.val());
+    iter1_4.prev();
+    try std.testing.expect(iter1_4.is_valid());
+    try std.testing.expectEqualStrings("value1", iter1_4.val());
+    iter1_4.prev();
+    try std.testing.expect(iter1_4.is_valid());
+    iter1_4.prev();
+    try std.testing.expect(!iter1_4.is_valid());
 
     var iter2_5 = memtable.scan("2", "5");
-    const val2_5_3 = try iter2_5.next();
-    try std.testing.expectEqualStrings("value3", val2_5_3.?.val);
-    const val2_5_4 = try iter2_5.next();
-    try std.testing.expectEqualStrings("value4", val2_5_4.?.val);
-    try std.testing.expectEqual(null, try iter2_5.next());
+    try std.testing.expect(iter2_5.is_valid());
+    try std.testing.expectEqualStrings("value3", iter2_5.val());
+    iter2_5.next();
+    try std.testing.expect(iter2_5.is_valid());
+    try std.testing.expectEqualStrings("value4", iter2_5.val());
 
     var iter2_3 = memtable.scan("2", "3");
-    try std.testing.expectEqual(null, try iter2_3.next());
+    try std.testing.expect(iter2_3.is_valid());
 }
