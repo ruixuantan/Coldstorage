@@ -48,9 +48,9 @@ test {
     _ = memtable;
     _ = block;
     _ = table;
-    // _ = iterator;
-    // _ = lsm;
-    // _ = lsm_iterator;
-    // _ = manifest;
-    // _ = wal;
+    _ = iterator;
+    _ = lsm;
+    _ = lsm_iterator;
+    _ = manifest;
+    _ = wal;
 }
