@@ -15,24 +15,55 @@ class Coldstorage:
         self.path = path
 
     def __enter__(self):
-        lib.open(self.path.encode("ascii"))
+        lib.cs_open(self.path.encode("ascii"))
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        lib.close()
-        if lib.detect_leaks():
+        lib.cs_close()
+        if lib.cs_detect_leaks():
             raise RuntimeError("Leaks detected")
 
     def put(self, key: bytes, val: bytes):
-        lib.put(key, val)
+        lib.cs_put(key, val)
 
     def get(self, key: bytes) -> Optional[bytes]:
         result = b" " * 1024
-        length = lib.get(key, result)
+        length = lib.cs_get(key, result)
         return result[:length] if length > 0 else None
 
     def delete(self, key: bytes):
-        lib.remove(key)
+        lib.cs_remove(key)
+
+    def scan(self, lower: bytes, upper: bytes) -> Cursor:
+        iterator = lib.cs_scan(lower, upper)
+        return Cursor(iterator)
 
     def detect_leaks(self) -> bool:
-        return lib.detect_leaks()
+        return lib.cs_detect_leaks()
+
+
+class Cursor:
+    def __init__(self, iterator: cffi.CDLL.cs_scan):
+        self.iterator = iterator
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        lib.cs_iterator_deinit(self.iterator)
+
+    def key(self) -> Optional[bytes]:
+        result = b" " * 1024
+        length = lib.cs_iterator_key(self.iterator, result)
+        return result[:length] if length > 0 else None
+
+    def val(self) -> Optional[bytes]:
+        result = b" " * 1024
+        length = lib.cs_iterator_val(self.iterator, result)
+        return result[:length] if length > 0 else None
+
+    def is_valid(self) -> bool:
+        return lib.cs_iterator_is_valid(self.iterator)
+
+    def next(self):
+        lib.cs_iterator_next(self.iterator)
