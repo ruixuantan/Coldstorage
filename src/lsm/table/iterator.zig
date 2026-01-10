@@ -8,19 +8,13 @@ pub const SsTableIterator = struct {
     table: *SsTable,
     block_iterator: BlockIterator,
     block_index: usize,
-    block: *Block,
-
-    pub fn deinit(self: SsTableIterator) void {
-        self.block.deinit();
-        self.table.gpa.destroy(self.block);
-    }
+    block: Block,
 
     pub fn create_and_seek_to_first(table: *SsTable) SsTableError!SsTableIterator {
-        const block = try table.gpa.create(Block);
         var itr = SsTableIterator{
             .table = table,
             .block_iterator = undefined,
-            .block = block,
+            .block = undefined,
             .block_index = 0,
         };
         try itr.seek_to_first();
@@ -29,17 +23,16 @@ pub const SsTableIterator = struct {
 
     pub fn seek_to_first(self: *SsTableIterator) SsTableError!void {
         self.block_index = 0;
-        self.block.* = try self.table.read_block(@intCast(self.block_index));
+        self.block = try self.table.read_block_cached(self.block_index);
         self.block_iterator = BlockIterator.init_and_seek_to_first(self.block);
     }
 
     pub fn create_and_seek_to_key(table: *SsTable, k: []const u8) SsTableError!SsTableIterator {
-        const block = try table.gpa.create(Block);
         var itr = SsTableIterator{
             .table = table,
             .block_iterator = undefined,
             .block_index = undefined,
-            .block = block,
+            .block = undefined,
         };
         try itr.seek_to_key(k);
         return itr;
@@ -50,13 +43,13 @@ pub const SsTableIterator = struct {
         var itr: BlockIterator = undefined;
         if (block_index >= self.table.block_metas.len) {
             const meta = self.table.block_metas[self.table.block_metas.len - 1];
-            self.block.* = try self.table.read_block(self.table.block_metas.len - 1);
+            self.block = try self.table.read_block_cached(self.table.block_metas.len - 1);
             itr = BlockIterator.init_and_seek_to_key(self.block, meta.last_key);
             itr.next();
             block_index = self.table.block_metas.len - 1;
             return;
         } else {
-            self.block.* = try self.table.read_block(block_index);
+            self.block = try self.table.read_block_cached(block_index);
             itr = BlockIterator.init_and_seek_to_key(self.block, k);
         }
         self.block_iterator = itr;
@@ -85,9 +78,8 @@ pub const SsTableIterator = struct {
 
         if (self.block_index >= self.table.block_metas.len - 1) return;
         self.block_index += 1;
-        self.block.deinit();
-        const new_block = try self.table.read_block(self.block_index);
-        self.block.* = new_block;
+        const new_block = try self.table.read_block_cached(self.block_index);
+        self.block = new_block;
         self.block_iterator = BlockIterator.init_and_seek_to_first(self.block);
     }
 };
@@ -98,7 +90,6 @@ test "SsTableIterator: create_and_seek_to_first, next" {
     var sst = try test_sstable.create_sst_test("sst_table_iterator_test.sst", test_gpa);
     defer test_sstable.close_sst_test(&sst, "sst_table_iterator_test.sst");
     var itr = try SsTableIterator.create_and_seek_to_first(&sst);
-    defer itr.deinit();
     try std.testing.expect(itr.is_valid());
     try std.testing.expectEqualStrings("key1", itr.key());
     try std.testing.expectEqualStrings("val1", itr.val());
@@ -128,7 +119,6 @@ test "SsTableIterator: create_and_seek_to_key, next" {
     var sst = try test_sstable.create_sst_test("sst_table_iterator_test.sst", test_gpa);
     defer test_sstable.close_sst_test(&sst, "sst_table_iterator_test.sst");
     var itr = try SsTableIterator.create_and_seek_to_key(&sst, "key3");
-    defer itr.deinit();
     try std.testing.expect(itr.is_valid());
     try std.testing.expectEqualStrings("key3", itr.key());
     try std.testing.expectEqualStrings("val3", itr.val());

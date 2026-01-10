@@ -47,6 +47,5 @@ test "Check TestSsTable" {
     try std.testing.expectEqualStrings("key5", sst.last_key);
     try std.testing.expect(!sst.bloom.may_contain("key100"));
     try std.testing.expect(sst.bloom.may_contain("key1"));
-    const block = try sst.read_block(0);
-    defer block.deinit();
+    _ = try sst.read_block_cached(0);
 }

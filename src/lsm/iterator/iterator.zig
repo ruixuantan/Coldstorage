@@ -20,10 +20,7 @@ pub const Iterator = union(enum) {
 
     pub fn deinit(self: *Iterator, gpa: std.mem.Allocator) void {
         switch (self.*) {
-            .block_iterator => |_| {},
-            .ss_table_iterator => |it| it.deinit(),
-            .memtable_iterator => |_| {},
-            .concat_iterator => |it| it.deinit(),
+            .block_iterator, .ss_table_iterator, .memtable_iterator, .concat_iterator => {},
             .merge_iterator => |it| it.deinit(),
             .two_merge_iterator => |it| it.deinit(),
         }

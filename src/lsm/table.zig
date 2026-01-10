@@ -12,6 +12,7 @@ test {
     _ = table;
     _ = builder;
     _ = iterator;
+    _ = @import("table/cache.zig");
 
     _ = @import("table/test_table.zig");
 }

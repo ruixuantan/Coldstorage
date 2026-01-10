@@ -5,10 +5,12 @@ Toy LSM storage. Single threaded for simplicity. Referenced and followed: <https
 ## Features
 
 * WAL
+* SSTable block cache optimization
 * Bloom filter optimization
 * C FFI
 
 Example python script:
+
 ```python
 from coldstorage import ColdStorage
 
@@ -55,5 +57,4 @@ uv run ruff format
 ## TODOs
 
 * Storage compression
-* Improve compaction (consider tigerbeetle)
-* Implement SSTable Block cache
+* Improve compaction

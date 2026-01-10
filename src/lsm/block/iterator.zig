@@ -2,14 +2,14 @@ const std = @import("std");
 const Block = @import("block.zig").Block;
 
 pub const BlockIterator = struct {
-    block: *const Block,
+    block: Block,
     key_start_offset: usize,
     key_end_offset: usize,
     val_start_offset: usize,
     val_end_offset: usize,
     idx: usize, // index of the current entry, not byte offset
 
-    fn init(block: *const Block) BlockIterator {
+    fn init(block: Block) BlockIterator {
         return BlockIterator{
             .block = block,
             .key_start_offset = 0,
@@ -39,20 +39,20 @@ pub const BlockIterator = struct {
         self.idx = target_idx;
     }
 
-    pub fn init_and_seek_to_first(block: *const Block) BlockIterator {
+    pub fn init_and_seek_to_first(block: Block) BlockIterator {
         var it = BlockIterator.init(block);
         it.seek_to_idx(0);
         return it;
     }
 
-    pub fn init_and_seek_to_last(block: *const Block) BlockIterator {
+    pub fn init_and_seek_to_last(block: Block) BlockIterator {
         var it = BlockIterator.init(block);
         it.seek_to_idx(block.offsets.len - 1);
         return it;
     }
 
     // will seek to self.key >= target_key
-    pub fn init_and_seek_to_key(block: *const Block, target_key: []const u8) BlockIterator {
+    pub fn init_and_seek_to_key(block: Block, target_key: []const u8) BlockIterator {
         var it = BlockIterator.init(block);
         var lo: usize = 0;
         var hi: usize = block.offsets.len;
@@ -102,7 +102,7 @@ test "BlockIterator: init_and_seek_to_first, next" {
     const block = try builder.build();
     defer block.deinit();
 
-    var it = BlockIterator.init_and_seek_to_first(&block);
+    var it = BlockIterator.init_and_seek_to_first(block);
     try std.testing.expect(it.is_valid());
     try std.testing.expectEqualStrings("key1", it.key());
     try std.testing.expectEqualStrings("val1", it.val());
@@ -124,7 +124,7 @@ test "BlockIterator: init_and_seek_to_key, next" {
     const block = try builder.build();
     defer block.deinit();
 
-    var it_exact = BlockIterator.init_and_seek_to_key(&block, "c");
+    var it_exact = BlockIterator.init_and_seek_to_key(block, "c");
     try std.testing.expect(it_exact.is_valid());
     try std.testing.expectEqualStrings("c", it_exact.key());
     try std.testing.expectEqualStrings("3", it_exact.val());
@@ -135,7 +135,7 @@ test "BlockIterator: init_and_seek_to_key, next" {
     it_exact.next();
     try std.testing.expect(!it_exact.is_valid());
 
-    var it_off = BlockIterator.init_and_seek_to_key(&block, "b");
+    var it_off = BlockIterator.init_and_seek_to_key(block, "b");
     try std.testing.expect(it_off.is_valid());
     try std.testing.expectEqualStrings("c", it_off.key());
     try std.testing.expectEqualStrings("3", it_off.val());
