@@ -4,6 +4,7 @@ const fs = std.fs;
 const Block = @import("../block.zig").block.Block;
 const SsTableIterator = @import("iterator.zig").SsTableIterator;
 const Bloom = @import("bloom.zig").Bloom;
+const Cache = @import("cache.zig").Cache;
 
 // BlockMeta layout:
 // --------------------------------------------------------------
@@ -129,6 +130,7 @@ pub const SsTable = struct {
     last_key: []const u8,
     file: fs.File,
     file_reader: FileReader,
+    sst_cache: *Cache,
     bloom: Bloom,
     gpa: mem.Allocator,
 
@@ -143,7 +145,9 @@ pub const SsTable = struct {
         file: fs.File,
         bloom: Bloom,
         gpa: mem.Allocator,
-    ) SsTable {
+    ) !SsTable {
+        const cache = try gpa.create(Cache);
+        cache.* = Cache.init(gpa, 64);
         return SsTable{
             .block_metas = block_metas,
             .block_meta_offset = block_meta_offset,
@@ -152,6 +156,7 @@ pub const SsTable = struct {
             .last_key = block_metas[block_metas.len - 1].last_key,
             .file = file,
             .file_reader = FileReader.init(file),
+            .sst_cache = cache,
             .bloom = bloom,
             .gpa = gpa,
         };
@@ -178,10 +183,13 @@ pub const SsTable = struct {
             file_reader.seek_and_read(block_meta_offset, bloom_offset - 4 - block_meta_offset),
             gpa,
         );
+        const cache = try gpa.create(Cache);
+        cache.* = Cache.init(gpa, 64);
         return .{
             .id = id,
             .file = file,
             .file_reader = file_reader,
+            .sst_cache = cache,
             .bloom = bloom,
             .gpa = gpa,
             .block_metas = block_metas,
@@ -196,6 +204,8 @@ pub const SsTable = struct {
             bm.deinit();
         }
         self.gpa.free(self.block_metas);
+        self.sst_cache.deinit();
+        self.gpa.destroy(self.sst_cache);
         self.bloom.deinit();
         self.file.close();
     }
@@ -204,7 +214,7 @@ pub const SsTable = struct {
         return self.block_metas.len;
     }
 
-    pub fn read_block(self: *SsTable, block_index: usize) SsTableError!Block {
+    fn read_block(self: *SsTable, block_index: usize) SsTableError!Block {
         const offset = self.block_metas[block_index].offset;
         var end_offset = self.block_meta_offset;
         if (block_index + 1 < self.num_blocks()) {
@@ -218,6 +228,17 @@ pub const SsTable = struct {
         if (checksum != stored_checksum) return SsTableError.DiskCorruptedBlock;
 
         return try Block.decode(block_data, self.gpa);
+    }
+
+    pub fn read_block_cached(self: *SsTable, block_index: usize) SsTableError!Block {
+        const cache_key = Cache.CacheKey{ .sst_id = self.id, .block_index = block_index };
+        if (self.sst_cache.get(cache_key)) |cached_block| {
+            return cached_block;
+        } else {
+            const block = try self.read_block(block_index);
+            try self.sst_cache.put(cache_key, block);
+            return block;
+        }
     }
 
     pub fn find_block_index(self: *SsTable, key: []const u8) usize {

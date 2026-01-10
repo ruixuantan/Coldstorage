@@ -11,12 +11,6 @@ pub const ConcatIterator = struct {
 
     pub const ConcatIteratorError = error{OutOfMemory} || SsTableError;
 
-    pub fn deinit(self: ConcatIterator) void {
-        if (self.itr) |i| {
-            i.deinit();
-        }
-    }
-
     pub fn create_and_seek_to_first(ss_tables: []SsTable) ConcatIteratorError!ConcatIterator {
         if (ss_tables.len == 0) {
             return ConcatIterator{
@@ -95,7 +89,6 @@ pub const ConcatIterator = struct {
         try self.itr.?.next();
         if (self.itr.?.is_valid()) return;
 
-        self.itr.?.deinit();
         if (self.next_ss_table_index >= self.ss_tables.len) {
             self.itr = null;
             return;
@@ -118,7 +111,6 @@ test "ConcatIterator: create_and_seek_to_first, next" {
         test_table.close_sst_test(&ss_tables[1], "concat_iterator_sst2.sst");
     }
     var concat_itr = try ConcatIterator.create_and_seek_to_first(&ss_tables);
-    defer concat_itr.deinit();
     try std.testing.expect(concat_itr.is_valid());
     try std.testing.expectEqualStrings("val1", concat_itr.val());
     try concat_itr.next();
@@ -145,7 +137,6 @@ test "ConcatIterator: create_and_seek_to_first, next" {
 
 test "ConcatIterator: create_and_seek_to_first on empty ss_tables" {
     var concat_itr = try ConcatIterator.create_and_seek_to_first(&[_]SsTable{});
-    defer concat_itr.deinit();
     try std.testing.expect(!concat_itr.is_valid());
 }
 
@@ -166,7 +157,6 @@ test "ConcatIterator: create_and_seek_to_key, next" {
     }
     var ss_tables = [_]SsTable{ ss_table1, ss_table2 };
     var concat_itr = try ConcatIterator.create_and_seek_to_key(&ss_tables, "key6");
-    defer concat_itr.deinit();
     try std.testing.expect(concat_itr.is_valid());
     try std.testing.expectEqualStrings("val7", concat_itr.val());
     try concat_itr.next();
@@ -178,6 +168,5 @@ test "ConcatIterator: create_and_seek_to_key, next" {
 
 test "ConcatIterator: create_and_seek_to_key on empty ss_tables" {
     var concat_itr = try ConcatIterator.create_and_seek_to_key(&[_]SsTable{}, "key1");
-    defer concat_itr.deinit();
     try std.testing.expect(!concat_itr.is_valid());
 }

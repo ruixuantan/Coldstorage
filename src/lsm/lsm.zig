@@ -271,11 +271,10 @@ pub const LsmStorageInner = struct {
 
         std.debug.assert(self.state.levels.items.len >= 1);
         for (self.state.levels.items) |level| {
-            var merge_itr = try ConcatIterator.create_and_seek_to_key(level.items, key);
-            defer merge_itr.deinit();
-            if (merge_itr.is_valid()) {
-                const k = merge_itr.key();
-                const v = merge_itr.val();
+            var concat_itr = try ConcatIterator.create_and_seek_to_key(level.items, key);
+            if (concat_itr.is_valid()) {
+                const k = concat_itr.key();
+                const v = concat_itr.val();
                 if (std.mem.eql(u8, k, key)) {
                     return if (v.len == 0) null else buf_print(v, buf);
                 }
@@ -466,7 +465,6 @@ pub const LsmStorageInner = struct {
                     },
                     1 => {
                         var itr = try ConcatIterator.create_and_seek_to_first(t.tables);
-                        defer itr.deinit();
                         var base_itr = Iterator{ .concat_iterator = &itr };
                         return try self.compact_from_iter(&base_itr);
                     },
