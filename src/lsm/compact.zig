@@ -2,12 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const SsTable = @import("table.zig").SsTable;
 const LsmStorageState = @import("lsm.zig").LsmStorageState;
-const dummy = @import("compact/dummy.zig");
 const simple_leveled = @import("compact/simple_leveled.zig");
-
-const DummyCompactionTask = dummy.DummyCompactionTask;
-const DummyCompactionController = dummy.DummyCompactionController;
-const DummyCompactionOptions = dummy.DummyCompactionOptions;
 
 const SimpleLeveledCompactionTask = simple_leveled.SimpleLeveledCompactionTask;
 const SimpleLeveledCompactionController = simple_leveled.SimpleLeveledCompactionController;

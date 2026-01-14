@@ -18,7 +18,6 @@ const SsTableIterator = @import("table.zig").SsTableIterator;
 const CompactionTask = @import("compact.zig").CompactionTask;
 const CompactionOptions = @import("compact.zig").CompactionOptions;
 const CompactionController = @import("compact.zig").CompactionController;
-const DummyCompactionController = @import("compact.zig").DummyCompactionController;
 
 const Manifest = @import("manifest.zig").Manifest;
 const ManifestRecord = @import("manifest.zig").ManifestRecord;
