@@ -8,6 +8,7 @@ Toy LSM storage. Single threaded for simplicity. Referenced and followed: <https
 * SSTable block cache optimization
 * Bloom filter optimization
 * C FFI
+* Simple Leveled Compaction
 
 Example python script:
 
@@ -29,6 +30,14 @@ This project uses:
 
 * uv (0.6.16)
 * zig (0.15.2)
+
+Building:
+
+```sh
+zig build
+```
+
+The binary should be in `zig-out/lib/`
 
 Running the python example:
 
@@ -57,4 +66,3 @@ uv run ruff format
 ## TODOs
 
 * Storage compression
-* Improve compaction

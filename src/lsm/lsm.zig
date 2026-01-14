@@ -18,7 +18,6 @@ const SsTableIterator = @import("table.zig").SsTableIterator;
 const CompactionTask = @import("compact.zig").CompactionTask;
 const CompactionOptions = @import("compact.zig").CompactionOptions;
 const CompactionController = @import("compact.zig").CompactionController;
-const DummyCompactionController = @import("compact.zig").DummyCompactionController;
 
 const Manifest = @import("manifest.zig").Manifest;
 const ManifestRecord = @import("manifest.zig").ManifestRecord;
@@ -28,9 +27,10 @@ pub const LsmStorageOptions = struct {
     block_size: usize = 1024 * 1024 * 4, // 4MB
     target_sst_size: usize = 1024 * 1024 * 128, // 128 MB
     num_memtable_limit: usize = 2,
-    compaction_options: CompactionOptions = .{ .dummy = .{
-        .max_l0_files = 8,
-        .max_l1_files = 16,
+    compaction_options: CompactionOptions = .{ .simple_leveled = .{
+        .size_ratio = 8.0,
+        .l0_file_num_compaction_trigger = 8,
+        .max_lvls = 8,
     } },
     enable_wal: bool = false,
 };
@@ -38,22 +38,26 @@ pub const LsmStorageOptions = struct {
 pub const LsmStorageState = struct {
     memtable: Memtable,
     imm_memtables: std.ArrayListUnmanaged(Memtable),
-    l0: std.ArrayList(SsTable),
-    levels: std.ArrayList(std.ArrayList(SsTable)),
+    l0: std.ArrayList(*SsTable),
+    levels: std.ArrayList(std.ArrayList(*SsTable)),
     path: []const u8,
     next_sst_id: usize = 0,
     dir: fs.Dir,
     manifest: Manifest,
     gpa: std.mem.Allocator,
 
-    pub fn init(options: LsmStorageOptions, path: []const u8, gpa: mem.Allocator) !LsmStorageState {
+    pub fn init(
+        options: LsmStorageOptions,
+        path: []const u8,
+        gpa: mem.Allocator,
+    ) !LsmStorageState {
         var imm_memtables = try std.ArrayListUnmanaged(Memtable).initCapacity(
             gpa,
             options.num_memtable_limit,
         );
-        var l0 = try std.ArrayList(SsTable).initCapacity(gpa, 1);
-        var levels = try std.ArrayList(std.ArrayList(SsTable)).initCapacity(gpa, 1);
-        const l1 = try std.ArrayList(SsTable).initCapacity(gpa, 1);
+        var l0 = try std.ArrayList(*SsTable).initCapacity(gpa, 1);
+        var levels = try std.ArrayList(std.ArrayList(*SsTable)).initCapacity(gpa, 1);
+        const l1 = try std.ArrayList(*SsTable).initCapacity(gpa, 1);
         try levels.append(gpa, l1);
         fs.cwd().makePath(path) catch |err| {
             if (err != error.PathAlreadyExists) return err;
@@ -82,8 +86,8 @@ pub const LsmStorageState = struct {
     fn recover(
         dir: *fs.Dir,
         mt: *Memtable,
-        l0: *std.ArrayList(SsTable),
-        levels: *std.ArrayList(std.ArrayList(SsTable)),
+        l0: *std.ArrayList(*SsTable),
+        levels: *std.ArrayList(std.ArrayList(*SsTable)),
         next_sst_id: *usize,
         manifest: *Manifest,
         gpa: mem.Allocator,
@@ -100,14 +104,15 @@ pub const LsmStorageState = struct {
             };
 
             const file = try dir.openFile(filename, .{ .mode = .read_only });
-            const sst = try SsTable.open(record.sst_id, file, gpa);
+            const sst = try gpa.create(SsTable);
+            sst.* = try SsTable.open(record.sst_id, file, gpa);
             switch (record.level) {
                 0 => try l0.append(gpa, sst),
                 else => {
                     const level_index: usize = @intCast(record.level);
                     std.debug.assert(level_index >= 1);
                     for (0..level_index - levels.items.len) |_| {
-                        const new_level = try std.ArrayList(SsTable).initCapacity(gpa, 1);
+                        const new_level = try std.ArrayList(*SsTable).initCapacity(gpa, 1);
                         try levels.append(gpa, new_level);
                     }
                     try levels.items[level_index - 1].append(gpa, sst);
@@ -152,12 +157,14 @@ pub const LsmStorageState = struct {
             m.deinit();
         }
         self.imm_memtables.deinit(self.gpa);
-        for (self.l0.items) |*sst| {
+        for (self.l0.items) |sst| {
             sst.close();
+            self.gpa.destroy(sst);
         }
         for (self.levels.items) |*level| {
-            for (level.items) |*sst| {
-                sst.*.close();
+            for (level.items) |sst| {
+                sst.close();
+                self.gpa.destroy(sst);
             }
             level.deinit(self.gpa);
         }
@@ -182,7 +189,7 @@ pub const LsmStorageState = struct {
     }
 
     pub fn append_empty_level(self: *LsmStorageState) !void {
-        const new_level = try std.ArrayList(SsTable).initCapacity(self.gpa, 1);
+        const new_level = try std.ArrayList(*SsTable).initCapacity(self.gpa, 1);
         try self.levels.append(self.gpa, new_level);
     }
 };
@@ -251,7 +258,7 @@ pub const LsmStorageInner = struct {
         }
 
         var l0_itrs = try std.ArrayList(Iterator).initCapacity(self.gpa, self.state.l0.items.len);
-        for (self.state.l0.items) |*sst| {
+        for (self.state.l0.items) |sst| {
             if (!sst.bloom.may_contain(key)) continue;
             const itr = try sst.scan(key, key);
             if (itr == null) continue;
@@ -319,7 +326,7 @@ pub const LsmStorageInner = struct {
         );
 
         var l0_itrs = try std.ArrayList(Iterator).initCapacity(self.gpa, self.state.l0.items.len);
-        for (self.state.l0.items) |*sst| {
+        for (self.state.l0.items) |sst| {
             if (try sst.scan(lower, upper)) |itr| {
                 const itr_ptr = try self.gpa.create(SsTableIterator);
                 itr_ptr.* = itr;
@@ -382,7 +389,7 @@ pub const LsmStorageInner = struct {
         const filename = try SsTable.get_sst_filename(id, self.gpa);
         defer self.gpa.free(filename);
 
-        const file = try self.state.dir.createFile(filename, .{});
+        const file = try self.state.dir.createFile(filename, .{ .read = true });
         const sst = try builder.build(id, file);
         try sst.file.sync();
         return sst;
@@ -394,7 +401,8 @@ pub const LsmStorageInner = struct {
         defer to_flush.deinit();
         var sst_builder = try SsTableBuilder.init(self.options.block_size, self.gpa);
         try to_flush.flush(&sst_builder);
-        const sst = try self.build_sst(&sst_builder, to_flush.id);
+        const sst = try self.gpa.create(SsTable);
+        sst.* = try self.build_sst(&sst_builder, to_flush.id);
         if (self.options.enable_wal) {
             try to_flush.delete_wal(&self.state.dir);
         }
@@ -406,70 +414,64 @@ pub const LsmStorageInner = struct {
     }
 
     fn trigger_compaction(self: *LsmStorageInner) !void {
-        const task = self.compaction_controller.init_compaction_task(&self.state);
-        if (task == null) return;
-        const compact_results = try self.compact(task.?);
+        var task = try self.compaction_controller.init_compaction_task(&self.state) orelse return;
+        defer task.deinit(self.gpa);
+        const compact_results = try self.compact(task);
+        defer self.gpa.free(compact_results);
 
         try self.compaction_controller.apply_compaction_result(
             &self.state,
-            task.?,
+            task,
             compact_results,
         );
         try self.sync();
     }
 
-    fn compact_from_iter(self: *LsmStorageInner, itr: *Iterator) ![]const SsTable {
-        var new_ssts = try std.ArrayList(SsTable).initCapacity(self.gpa, 1);
+    fn compact_from_iter(self: *LsmStorageInner, itr: *Iterator) ![]const *SsTable {
+        defer {
+            itr.deinit(self.gpa);
+            self.gpa.destroy(itr);
+        }
+        var new_ssts = try std.ArrayList(*SsTable).initCapacity(self.gpa, 1);
         var sst_builder = try SsTableBuilder.init(self.options.block_size, self.gpa);
 
-        var next = try itr.next();
         while (itr.is_valid()) {
             const k = itr.key();
             const v = itr.val();
             if (sst_builder.estimated_size() >= self.options.target_sst_size) {
                 const next_sst_id = self.state.get_next_sst_id();
-                const sst = try self.build_sst(&sst_builder, next_sst_id);
+                const sst = try self.gpa.create(SsTable);
+                sst.* = try self.build_sst(&sst_builder, next_sst_id);
                 try new_ssts.append(self.gpa, sst);
                 sst_builder = try SsTableBuilder.init(self.options.block_size, self.gpa);
             }
             try sst_builder.add(k, v);
-            next = try itr.next();
+            try itr.next();
         }
         const next_sst_id = self.state.get_next_sst_id();
-        const sst = try self.build_sst(&sst_builder, next_sst_id);
+        const sst = try self.gpa.create(SsTable);
+        sst.* = try self.build_sst(&sst_builder, next_sst_id);
         try new_ssts.append(self.gpa, sst);
         return try new_ssts.toOwnedSlice(self.gpa);
     }
 
-    fn compact(self: *LsmStorageInner, task: CompactionTask) ![]const SsTable {
+    fn compact(self: *LsmStorageInner, task: CompactionTask) ![]const *SsTable {
         switch (task) {
-            .dummy => |t| {
-                switch (t.level) {
-                    0 => {
-                        var itrs = try std.ArrayList(Iterator).initCapacity(
-                            self.gpa,
-                            t.tables.len,
-                        );
-                        for (t.tables) |*sst| {
-                            const itr_ptr = try self.gpa.create(SsTableIterator);
-                            itr_ptr.* = try SsTableIterator.create_and_seek_to_first(sst);
-                            itrs.appendAssumeCapacity(Iterator{ .ss_table_iterator = itr_ptr });
-                        }
-                        var merge_itr = try MergeIterator.init(
-                            self.gpa,
-                            try itrs.toOwnedSlice(self.gpa),
-                        );
-                        defer merge_itr.deinit();
-                        var base_itr = Iterator{ .merge_iterator = &merge_itr };
-                        return try self.compact_from_iter(&base_itr);
-                    },
-                    1 => {
-                        var itr = try ConcatIterator.create_and_seek_to_first(t.tables);
-                        var base_itr = Iterator{ .concat_iterator = &itr };
-                        return try self.compact_from_iter(&base_itr);
-                    },
-                    else => unreachable,
+            .simple_leveled => |t| {
+                var itrs = try std.ArrayList(Iterator).initCapacity(
+                    self.gpa,
+                    t.upper_level_ssts.len,
+                );
+                for (t.upper_level_ssts) |sst| {
+                    const itr = try self.gpa.create(SsTableIterator);
+                    itr.* = try SsTableIterator.create_and_seek_to_first(sst);
+                    itrs.appendAssumeCapacity(Iterator{ .ss_table_iterator = itr });
                 }
+                const merge_itr = try self.gpa.create(MergeIterator);
+                merge_itr.* = try MergeIterator.init(self.gpa, try itrs.toOwnedSlice(self.gpa));
+                const base_itr = try self.gpa.create(Iterator);
+                base_itr.* = .{ .merge_iterator = merge_itr };
+                return try self.compact_from_iter(base_itr);
             },
         }
         unreachable;
@@ -482,6 +484,11 @@ test "LsmStorageInner: put, get, del" {
         .block_size = 4096,
         .target_sst_size = 8,
         .num_memtable_limit = 4,
+        .compaction_options = .{ .simple_leveled = .{
+            .size_ratio = 2.0,
+            .l0_file_num_compaction_trigger = 2,
+            .max_lvls = 3,
+        } },
     };
     var lsm = try LsmStorageInner.open("testdb/data", test_options, test_gpa);
     defer {
