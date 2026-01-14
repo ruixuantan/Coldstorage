@@ -1,29 +1,43 @@
 const std = @import("std");
+const mem = std.mem;
 const SsTable = @import("table.zig").SsTable;
 const LsmStorageState = @import("lsm.zig").LsmStorageState;
 const dummy = @import("compact/dummy.zig");
+const simple_leveled = @import("compact/simple_leveled.zig");
 
 const DummyCompactionTask = dummy.DummyCompactionTask;
 const DummyCompactionController = dummy.DummyCompactionController;
 const DummyCompactionOptions = dummy.DummyCompactionOptions;
 
+const SimpleLeveledCompactionTask = simple_leveled.SimpleLeveledCompactionTask;
+const SimpleLeveledCompactionController = simple_leveled.SimpleLeveledCompactionController;
+const SimpleLeveledCompactionOptions = simple_leveled.SimpleLeveledCompactionOptions;
+
 pub const CompactionTask = union(enum) {
-    dummy: DummyCompactionTask,
+    simple_leveled: SimpleLeveledCompactionTask,
+
+    pub fn deinit(self: *CompactionTask, gpa: mem.Allocator) void {
+        switch (self.*) {
+            .simple_leveled => |t| {
+                t.deinit(gpa);
+            },
+        }
+    }
 };
 
 pub const CompactionOptions = union(enum) {
-    dummy: DummyCompactionOptions,
+    simple_leveled: SimpleLeveledCompactionOptions,
 };
 
 pub const CompactionController = union(enum) {
-    dummy: DummyCompactionController,
+    simple_leveled: SimpleLeveledCompactionController,
 
     pub fn from_options(
         options: CompactionOptions,
     ) CompactionController {
         return switch (options) {
-            .dummy => |opts| CompactionController{
-                .dummy = DummyCompactionController{ .options = opts },
+            .simple_leveled => |opts| CompactionController{
+                .simple_leveled = .{ .options = opts },
             },
         };
     }
@@ -31,12 +45,11 @@ pub const CompactionController = union(enum) {
     pub fn init_compaction_task(
         self: CompactionController,
         state: *LsmStorageState,
-    ) ?CompactionTask {
+    ) !?CompactionTask {
         return switch (self) {
-            .dummy => |ctrl| {
-                const task = ctrl.init_compaction_task(state);
-                if (task) |t| {
-                    return CompactionTask{ .dummy = t };
+            .simple_leveled => |ctrl| {
+                if (try ctrl.init_compaction_task(state)) |t| {
+                    return CompactionTask{ .simple_leveled = t };
                 } else {
                     return null;
                 }
@@ -48,11 +61,11 @@ pub const CompactionController = union(enum) {
         self: CompactionController,
         state: *LsmStorageState,
         task: CompactionTask,
-        output: []const SsTable,
+        output: []const *SsTable,
     ) !void {
         switch (self) {
-            .dummy => |ctrl| {
-                try ctrl.apply_compaction_result(state, task.dummy, output);
+            .simple_leveled => |ctrl| {
+                try ctrl.apply_compaction_result(state, task.simple_leveled, output);
             },
         }
     }

@@ -8,6 +8,7 @@ Toy LSM storage. Single threaded for simplicity. Referenced and followed: <https
 * SSTable block cache optimization
 * Bloom filter optimization
 * C FFI
+* Simple Leveled Compaction
 
 Example python script:
 
@@ -57,4 +58,3 @@ uv run ruff format
 ## TODOs
 
 * Storage compression
-* Improve compaction
