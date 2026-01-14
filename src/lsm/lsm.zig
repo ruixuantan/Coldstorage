@@ -28,7 +28,7 @@ pub const LsmStorageOptions = struct {
     target_sst_size: usize = 1024 * 1024 * 128, // 128 MB
     num_memtable_limit: usize = 2,
     compaction_options: CompactionOptions = .{ .simple_leveled = .{
-        .size_ratio_percent = 800,
+        .size_ratio = 8.0,
         .l0_file_num_compaction_trigger = 8,
         .max_lvls = 8,
     } },
@@ -485,7 +485,7 @@ test "LsmStorageInner: put, get, del" {
         .target_sst_size = 8,
         .num_memtable_limit = 4,
         .compaction_options = .{ .simple_leveled = .{
-            .size_ratio_percent = 200,
+            .size_ratio = 2.0,
             .l0_file_num_compaction_trigger = 2,
             .max_lvls = 3,
         } },

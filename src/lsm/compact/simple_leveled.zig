@@ -4,9 +4,9 @@ const SsTable = @import("../table.zig").SsTable;
 const LsmStorageState = @import("../lsm.zig").LsmStorageState;
 
 pub const SimpleLeveledCompactionOptions = struct {
-    size_ratio_percent: usize = 200,
-    l0_file_num_compaction_trigger: usize = 8,
-    max_lvls: usize = 8,
+    size_ratio: f32,
+    l0_file_num_compaction_trigger: usize,
+    max_lvls: usize,
 };
 
 pub const SimpleLeveledCompactionTask = struct {
@@ -51,6 +51,29 @@ pub const SimpleLeveledCompactionController = struct {
                 .is_lower_level_bottom = false,
             };
         }
+
+        std.debug.assert(state.levels.items.len <= self.options.max_lvls);
+        for (1..state.levels.items.len) |level| {
+            const lower_level = level + 1;
+            const lower_level_len: f32 = @floatFromInt(state.levels.items[lower_level - 1].items.len);
+            const upper_level_len: f32 = @floatFromInt(state.levels.items[level - 1].items.len);
+            const size_ratio = lower_level_len / upper_level_len;
+            if (size_ratio >= self.options.size_ratio) continue;
+
+            for (state.levels.items[level - 1].items) |sst| {
+                try upper_level_ssts.append(state.gpa, sst);
+            }
+            for (state.levels.items[lower_level - 1].items) |sst| {
+                try lower_level_ssts.append(state.gpa, sst);
+            }
+            return .{
+                .upper_level = level,
+                .upper_level_ssts = try upper_level_ssts.toOwnedSlice(state.gpa),
+                .lower_level = lower_level,
+                .lower_level_ssts = try lower_level_ssts.toOwnedSlice(state.gpa),
+                .is_lower_level_bottom = lower_level == self.options.max_lvls,
+            };
+        }
         return null;
     }
 
@@ -61,10 +84,23 @@ pub const SimpleLeveledCompactionController = struct {
         output: []const *SsTable,
     ) !void {
         _ = self;
-        for (0..state.l0.items.len) |_| {
-            const sst = state.l0.pop().?;
-            try state.delete_sst_file(sst);
-            state.gpa.destroy(sst);
+        if (task.upper_level) |upper_level| {
+            for (task.upper_level_ssts) |sst| {
+                for (state.levels.items[upper_level - 1].items, 0..) |target_sst, i| {
+                    if (sst.id == target_sst.id) {
+                        _ = state.levels.items[upper_level - 1].orderedRemove(i);
+                        break;
+                    }
+                }
+                try state.delete_sst_file(sst);
+                state.gpa.destroy(sst);
+            }
+        } else {
+            for (0..state.l0.items.len) |_| {
+                const sst = state.l0.pop().?;
+                try state.delete_sst_file(sst);
+                state.gpa.destroy(sst);
+            }
         }
         const level = task.lower_level;
         if (state.levels.items.len <= level) {
