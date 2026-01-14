@@ -31,6 +31,14 @@ This project uses:
 * uv (0.6.16)
 * zig (0.15.2)
 
+Building:
+
+```sh
+zig build
+```
+
+The binary should be in `zig-out/lib/`
+
 Running the python example:
 
 ```sh
